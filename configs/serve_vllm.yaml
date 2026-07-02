@@ -1,0 +1,14 @@
+# Serving config for llamafactory-cli api (OpenAI-compatible endpoint via vLLM).
+# Passed to `llamafactory-cli api <this-file>` by scripts/serve.sh.
+model_name_or_path: Qwen/Qwen2.5-14B-Instruct
+adapter_name_or_path: weights/checkpoint-9250
+template: qwen
+finetuning_type: lora
+infer_backend: vllm
+infer_dtype: bfloat16
+trust_remote_code: true
+vllm_maxlen: 32768
+vllm_gpu_util: 0.85
+vllm_enforce_eager: false
+vllm_max_lora_rank: 8
+vllm_config: {"enable_prefix_caching": true, "tensor_parallel_size": 4}

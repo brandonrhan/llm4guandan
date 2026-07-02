@@ -1,0 +1,28 @@
+# Inference-only requirements. See requirements-train.txt for training.
+# Tested on: Python 3.10, CUDA 12.x, Linux x86_64.
+
+# Core inference
+torch>=2.1
+transformers==4.57.6
+tokenizers==0.22.2
+peft==0.15.2
+safetensors>=0.4.3
+accelerate>=0.34
+sentencepiece
+tiktoken
+einops
+
+# vLLM serving (optional but recommended for multi-GPU)
+vllm==0.23.0
+
+# LLaMA-Factory API server (wraps vLLM in an OpenAI-compatible endpoint)
+# Install from source in scripts/setup.sh; the pinned commit is in that script.
+
+# Client
+openai>=1.30
+requests
+tenacity
+
+# CLI utilities
+pyyaml
+tqdm

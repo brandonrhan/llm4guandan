@@ -1,0 +1,79 @@
+diff --git a/eval.sh b/eval.sh
+index 18b18b0..e2e6af7 100644
+--- a/eval.sh
++++ b/eval.sh
+@@ -23,7 +23,11 @@ evaluate_guandan() {
+     
+     local out_dir="./${base_dir}/guandan-$seed-$num_games-$player1-$player2-$test_model"
+     local eval_file="$out_dir-log.txt"
+-    bash scripts/eval_guandan.sh $seed $num_games $cuda $player1 $player2 $out_dir $eval_file
++    if [ "$player2" = "danzero" ]; then
++        bash scripts/eval_guandan_danzero.sh $seed $num_games $cuda $player1 $player2 $out_dir $eval_file
++    else
++        bash scripts/eval_guandan_local.sh $seed $num_games $cuda $player1 $player2 $out_dir $eval_file
++    fi
+ }
+ 
+ evaluate_riichi() {
+diff --git a/util/guandan_util/actor_llm.py b/util/guandan_util/actor_llm.py
+index 8de0b83..741cd3e 100644
+--- a/util/guandan_util/actor_llm.py
++++ b/util/guandan_util/actor_llm.py
+@@ -47,8 +47,13 @@ class Player():
+             return 0
+ 
+         prompt = self.prompt_function(state)
+-        output = self.llm(prompt, client=self.client, model_config=self.model_config)
+-        action = self.out_parse_function(output)
++        try:
++            output = self.llm(prompt, client=self.client, model_config=self.model_config)
++            action = self.out_parse_function(output)
++        except Exception as e:
++            print(f"actor llm error: {e}; fallback to random", flush=True)
++            output = ""
++            action = None
+ 
+         self.request_count += 1
+         
+diff --git a/util/llm_client.py b/util/llm_client.py
+index ce717a7..7badbad 100644
+--- a/util/llm_client.py
++++ b/util/llm_client.py
+@@ -37,7 +37,7 @@ def openai_api_function(prompt, history=None, system=None, client=None, model_co
+         temperature=temperature,
+         # do_sample=model_config['do_sample'],
+         stream=False,
+-        max_tokens=1024
++        max_tokens=256
+     )
+     output = resp.choices[0].message.content
+     # print(output)
+@@ -54,7 +54,7 @@ def openai_api_function(prompt, history=None, system=None, client=None, model_co
+ class ModelCallError(Exception):
+     pass
+ 
+-@retry(stop=stop_after_attempt(10), wait=wait_fixed(60), retry_error_cls=ModelCallError)
++@retry(stop=stop_after_attempt(3), wait=wait_fixed(5), retry_error_cls=ModelCallError)
+ def llm_function(prompt, history=None, system=None, client=None, model_config=None):
+     try:
+         output = openai_api_function(prompt, history, system, client, model_config)
+diff --git a/util/llm_config.py b/util/llm_config.py
+index 8744dbf..2691949 100644
+--- a/util/llm_config.py
++++ b/util/llm_config.py
+@@ -31,13 +31,13 @@ model_provider = {
+ model_config = {
+     'llm': {
+         'name': 'llm',
+-        'model_type': 'THUDM/glm-4-9b-chat',
++        'model_type': 'guandan',
+         'do_sample': False,
+         'call_func': model_provider['local'],
+     },
+     'llm2': {
+         'name': 'llm2',
+-        'model_type': 'THUDM/glm-4-9b-chat',
++        'model_type': 'guandan',
+         'do_sample': False,
+         'call_func': model_provider['local2'],
+     },

@@ -1,0 +1,56 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# venv
+.venv/
+venv/
+env/
+ENV/
+
+# distribution
+build/
+dist/
+*.egg-info/
+*.egg
+
+# logs & experiment output
+logs/
+eval_logs/
+eval_out/
+runs/
+*.log
+
+# checkpoints created by future training runs
+weights/checkpoint-*/global_step*/
+weights/checkpoint-*/optimizer.pt
+weights/checkpoint-*/scheduler.pt
+weights/checkpoint-*/rng_state*.pth
+weights/checkpoint-*/latest
+weights/checkpoint-*/trainer_state.json
+weights/checkpoint-*/training_args.bin
+weights/checkpoint-*/zero_to_fp32.py
+
+# third-party checkouts (cloned by scripts/setup.sh)
+third_party/LLaMA-Factory/
+third_party/LLM4CardGame/
+third_party/Danzero_plus/
+third_party/guandan_mcc/
+
+# datasets (not shipped)
+data/
+data_smoke/
+
+# IDE
+.idea/
+.vscode/
+.DS_Store
+
+# temp / scratch
+tmp/
+scratch/
+*.tmp
+*.bak
+*.bak[0-9]*

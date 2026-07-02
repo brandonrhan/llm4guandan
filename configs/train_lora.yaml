@@ -1,0 +1,42 @@
+### model
+model_name_or_path: Qwen/Qwen2.5-14B-Instruct
+trust_remote_code: true
+
+### method
+stage: sft
+do_train: true
+finetuning_type: lora
+lora_rank: 8
+lora_alpha: 16
+lora_target: all
+deepspeed: configs/ds_z3.json
+
+### dataset
+# Data is *not* shipped with this repo. See docs/TRAINING.md for how to
+# regenerate the 46k Guandan-trace training set from Danzero+ self-play.
+dataset: guandan_full
+dataset_dir: third_party/LLaMA-Factory/data
+template: qwen
+cutoff_len: 4096
+overwrite_cache: false
+preprocessing_num_workers: 8
+
+### output
+output_dir: runs/full_14b
+logging_steps: 10
+save_steps: 500
+save_total_limit: 8
+plot_loss: true
+overwrite_output_dir: true
+report_to: none
+
+### train
+per_device_train_batch_size: 1
+gradient_accumulation_steps: 21
+learning_rate: 1.0e-4
+num_train_epochs: 1.0
+lr_scheduler_type: cosine
+warmup_ratio: 0.1
+bf16: true
+gradient_checkpointing: true
+ddp_timeout: 180000000

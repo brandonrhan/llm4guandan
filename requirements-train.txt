@@ -1,0 +1,14 @@
+# Training requirements (superset of requirements.txt).
+# For reproducing the LoRA training runs.
+
+-r requirements.txt
+
+# Training-only
+deepspeed>=0.14.4
+datasets>=2.20
+trl>=0.8
+bitsandbytes
+scipy
+matplotlib
+
+# LLaMA-Factory is installed from source (editable) in scripts/setup.sh.
