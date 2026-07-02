@@ -21,6 +21,14 @@ Trained for one full epoch (9,250 optimizer steps) on 46k Guandan traces.
 - Epochs: 1.0 (9,250 steps)
 - Hardware: 6×RTX 4090 24 GB (`CUDA_VISIBLE_DEVICES=0,1,2,3,6,7`)
 
+## Prompt format
+
+**Critical:** this adapter expects the exact 133-line prompt template it was
+trained on. See [`../../docs/PROMPT_FORMAT.md`](../../docs/PROMPT_FORMAT.md)
+for the full spec and [`../../prompt/prompt_guandan4.py`](../../prompt/prompt_guandan4.py)
+for the template source. Do not invent your own system prompt or state schema —
+the model is out-of-distribution otherwise.
+
 ## How to load
 
 ### With vLLM (production serving)

@@ -47,17 +47,41 @@ Then call it like OpenAI:
 python examples/infer_openai_client.py
 ```
 
-or in Python directly:
+> **⚠️ Prompt format matters.** The model is SFT-trained on a fixed
+> 133-line template with 13 numbered state slots and expects the reply as a
+> single JSON `{"action": [Type, Rank, [Cards]]}` object. Deviating from that
+> format silently degrades performance. Read **[`docs/PROMPT_FORMAT.md`](docs/PROMPT_FORMAT.md)**
+> before writing your own caller. The exact template is checked in at
+> [`prompt/prompt_guandan4.py`](prompt/prompt_guandan4.py) and a real training
+> record is at [`prompt/sample_training_example.txt`](prompt/sample_training_example.txt).
+
+Minimal correct call in Python (see `examples/infer_openai_client.py` for the
+full state dict):
 
 ```python
+import json
 from openai import OpenAI
+from prompt.prompt_guandan4 import prompt_guandan
+
+state = {...}  # 13 fields — see docs/PROMPT_FORMAT.md
+user_msg = prompt_guandan % (
+    json.dumps(state["position"]),         json.dumps(state["hand"]),
+    json.dumps(state["remaining_others"]), json.dumps(state["last_action_others"]),
+    json.dumps(state["last_action_teammate"]), json.dumps(state["num_left"]),
+    json.dumps(state["played_down"]),      json.dumps(state["played_teammate"]),
+    json.dumps(state["played_up"]),        json.dumps(state["self_rank"]),
+    json.dumps(state["opponent_rank"]),    json.dumps(state["current_rank"]),
+    json.dumps(state["legal_actions"]),
+)
+
 c = OpenAI(base_url="http://localhost:8552/v1", api_key="local")
 r = c.chat.completions.create(
     model="guandan",
-    messages=[{"role":"user","content":"Your hand: SA HK D5 ... What should you play?"}],
+    messages=[{"role": "user", "content": user_msg}],  # no custom system prompt
     temperature=0.0,
+    max_tokens=256,
 )
-print(r.choices[0].message.content)
+print(r.choices[0].message.content)  # -> {"action": ["Single", "9", ["H9"]]}
 ```
 
 ## Quickstart — inference without vLLM (single GPU / CPU offload)
@@ -107,11 +131,12 @@ Full details in [`docs/EVALUATION.md`](docs/EVALUATION.md).
 
 ```
 weights/checkpoint-9250/   LoRA adapter (66 MB, adapter_config.json + safetensors)
+prompt/                    Exact training prompt template + a real sample
 configs/                   Training / serving YAML + DeepSpeed ZeRO-3 config
 scripts/                   setup.sh, train.sh, serve.sh, eval.sh, parse_results.py
-examples/                  Standalone inference examples
+examples/                  Standalone inference examples (use the real template)
 patches/                   Files we changed in LLM4CardGame + a unified diff
-docs/                      Deep-dive docs on training, eval, and results
+docs/                      Deep-dive docs on training, eval, prompt format, results
 assets/                    training_loss.png, train_results.json
 ```
 

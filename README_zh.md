@@ -36,12 +36,20 @@ bash scripts/serve.sh          # 启动 OpenAI 兼容 API :8552
 python examples/infer_openai_client.py
 ```
 
-或者不用 vLLM，直接用 transformers + peft:
+或者不用 vLLM，直接用 transformers + peft：
 
 ```bash
 pip install -r requirements.txt
 python examples/infer_transformers.py
 ```
+
+> **⚠️ Prompt 格式非常关键。** 模型是在一份固定的 133 行模板上做的 SFT，
+> 输入需要按顺序填 13 个游戏状态槽位，输出是一个 `{"action": [Type, Rank, [Cards]]}`
+> 的单行 JSON。写自己的 client 前请先看
+> **[`docs/PROMPT_FORMAT.md`](docs/PROMPT_FORMAT.md)** —— 训练时的模板原文见
+> [`prompt/prompt_guandan4.py`](prompt/prompt_guandan4.py)，一条真实训练样本见
+> [`prompt/sample_training_example.txt`](prompt/sample_training_example.txt)。
+> `examples/infer_openai_client.py` 就是照着这个格式写的正确样例。
 
 ## 复现训练与评测
 
