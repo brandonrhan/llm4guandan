@@ -63,15 +63,15 @@ import json
 from openai import OpenAI
 from prompt.prompt_guandan4 import prompt_guandan
 
-state = {...}  # 13 fields — see docs/PROMPT_FORMAT.md
+obs = {...}  # 13 fields — same keys as upstream state["raw_obs"]; see docs/PROMPT_FORMAT.md
 user_msg = prompt_guandan % (
-    json.dumps(state["position"]),         json.dumps(state["hand"]),
-    json.dumps(state["remaining_others"]), json.dumps(state["last_action_others"]),
-    json.dumps(state["last_action_teammate"]), json.dumps(state["num_left"]),
-    json.dumps(state["played_down"]),      json.dumps(state["played_teammate"]),
-    json.dumps(state["played_up"]),        json.dumps(state["self_rank"]),
-    json.dumps(state["opponent_rank"]),    json.dumps(state["current_rank"]),
-    json.dumps(state["legal_actions"]),
+    json.dumps(obs["my_pos"]),                json.dumps(obs["my_hands"]),
+    json.dumps(obs["remaining_hands"]),       json.dumps(obs["last_action"]),
+    json.dumps(obs["last_teammate_action"]),  json.dumps(obs["number_of_cards_left"]),
+    json.dumps(obs["down_played_cards"]),     json.dumps(obs["teammate_played_cards"]),
+    json.dumps(obs["up_played_cards"]),       json.dumps(obs["self_rank"]),
+    json.dumps(obs["oppo_rank"]),             json.dumps(obs["cur_rank"]),
+    json.dumps(obs["legal_actions"]),
 )
 
 c = OpenAI(base_url="http://localhost:8552/v1", api_key="local")

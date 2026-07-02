@@ -18,35 +18,43 @@ from prompt.prompt_guandan4 import prompt_guandan
 from openai import OpenAI
 
 
-def build_user_message(state: dict) -> str:
-    """Render a state dict into the exact prompt the model was trained on.
+def build_user_message(obs: dict) -> str:
+    """Render an observation dict into the exact prompt the model was trained on.
+
+    The 13 field names below are the *upstream* rlcard-env keys used by
+    `convert_data.py::convert_guandan` (training) and
+    `util/prompt_util.py::prompt_function_guandan` (live inference).
+    They are byte-for-byte identical in both places, so you can pass
+    `state['raw_obs']` from the live env directly in.
 
     See docs/PROMPT_FORMAT.md for the schema of every field. Order matters.
     """
     return prompt_guandan % (
-        json.dumps(state["position"]),
-        json.dumps(state["hand"]),
-        json.dumps(state["remaining_others"]),
-        json.dumps(state["last_action_others"]),
-        json.dumps(state["last_action_teammate"]),
-        json.dumps(state["num_left"]),
-        json.dumps(state["played_down"]),
-        json.dumps(state["played_teammate"]),
-        json.dumps(state["played_up"]),
-        json.dumps(state["self_rank"]),
-        json.dumps(state["opponent_rank"]),
-        json.dumps(state["current_rank"]),
-        json.dumps(state["legal_actions"]),
+        json.dumps(obs["my_pos"]),
+        json.dumps(obs["my_hands"]),
+        json.dumps(obs["remaining_hands"]),
+        json.dumps(obs["last_action"]),
+        json.dumps(obs["last_teammate_action"]),
+        json.dumps(obs["number_of_cards_left"]),
+        json.dumps(obs["down_played_cards"]),
+        json.dumps(obs["teammate_played_cards"]),
+        json.dumps(obs["up_played_cards"]),
+        json.dumps(obs["self_rank"]),
+        json.dumps(obs["oppo_rank"]),
+        json.dumps(obs["cur_rank"]),
+        json.dumps(obs["legal_actions"]),
     )
 
 
-# A real training-distribution state (record #0 of the SFT jsonl).
+# A real training-distribution observation (record #0 of the SFT jsonl).
+# Key names match the upstream env exactly — this is the same dict shape
+# that `state['raw_obs']` gives you at inference time.
 STATE = {
-    "position": "2",
-    "hand": ["C2", "D2", "S5", "S6", "S6", "S7", "D7", "D7", "D9", "DT",
-             "SJ", "HJ", "CJ", "CJ", "DJ", "HQ", "CQ", "SK", "CK", "SA",
-             "HA", "CA", "DA", "DA", "C8", "D8", "HR"],
-    "remaining_others": [
+    "my_pos": 2,
+    "my_hands": ["C2", "D2", "S5", "S6", "S6", "S7", "D7", "D7", "D9", "DT",
+                 "SJ", "HJ", "CJ", "CJ", "DJ", "HQ", "CQ", "SK", "CK", "SA",
+                 "HA", "CA", "DA", "DA", "C8", "D8", "HR"],
+    "remaining_hands": [
         "H2", "H3", "H3", "H4", "H5", "H5", "H6", "H6", "H7", "H7",
         "H8", "H8", "H9", "H9", "HT", "HT", "HJ", "HQ", "HK", "HK", "HA",
         "S2", "S2", "S3", "S3", "S4", "S4", "S5", "S7", "S8", "S8",
@@ -56,15 +64,15 @@ STATE = {
         "D2", "D3", "D3", "D4", "D4", "D5", "D5", "D6", "D6", "D8", "D9",
         "DT", "DJ", "DQ", "DQ", "DK", "DK", "SB", "SB", "HR",
     ],
-    "last_action_others": ["C5"],
-    "last_action_teammate": ["H4"],
-    "num_left": {"0": 26, "1": 26, "2": 27, "3": 26},
-    "played_down": ["H2"],
-    "played_teammate": ["H4"],
-    "played_up": ["C5"],
+    "last_action": ["C5"],
+    "last_teammate_action": ["H4"],
+    "number_of_cards_left": {"0": 26, "1": 26, "2": 27, "3": 26},
+    "down_played_cards": ["H2"],
+    "teammate_played_cards": ["H4"],
+    "up_played_cards": ["C5"],
     "self_rank": "2",
-    "opponent_rank": "8",
-    "current_rank": "8",
+    "oppo_rank": "8",
+    "cur_rank": "8",
     "legal_actions": [
         ["PASS", "PASS", "PASS"],
         ["Single", "6", ["S6"]],
