@@ -1,0 +1,17 @@
+# Accelerate + DeepSpeed ZeRO-3 config for GRPO training (2 trainer GPUs).
+# Mirrors configs/ds_z3.json (reused from SFT) via the DeepSpeed plugin.
+# Launch: accelerate launch --config_file configs/accel_ds_z3.yaml rl/train_grpo.py --config configs/grpo_v1.yaml
+compute_environment: LOCAL_MACHINE
+distributed_type: DEEPSPEED
+mixed_precision: bf16
+use_cpu: false
+num_machines: 1
+num_processes: 2          # GPUs 0,1 (set via CUDA_VISIBLE_DEVICES in train_grpo.sh)
+machine_rank: 0
+main_training_function: main
+deepspeed_config:
+  zero_stage: 3
+  zero3_init_flag: true
+  offload_optimizer_device: none
+  offload_param_device: none
+  gradient_accumulation_steps: 1
