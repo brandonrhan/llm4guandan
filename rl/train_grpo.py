@@ -184,6 +184,15 @@ def main():
     with open(args.config) as fin:
         cfg = yaml.safe_load(fin)
 
+    # Deployment overrides: keep the config generic (HF hub paths) but let the
+    # launcher point trainer + vLLM at the same local weights via one env pair.
+    if os.environ.get("BASE_MODEL"):
+        cfg["model_name_or_path"] = os.environ["BASE_MODEL"]
+    if os.environ.get("INIT_LORA"):
+        cfg["adapter_name_or_path"] = os.environ["INIT_LORA"]
+    if os.environ.get("API_PORT"):
+        cfg["api_port"] = int(os.environ["API_PORT"])
+
     accelerator = Accelerator()
     tokenizer = AutoTokenizer.from_pretrained(cfg["model_name_or_path"])
     if tokenizer.pad_token_id is None:

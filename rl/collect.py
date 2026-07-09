@@ -4,7 +4,7 @@ Pipeline
 --------
 1. Run ``scripts/rollout.sh`` (or reuse an existing ``traj_dir``): plays deals
    vs. DanZero, logging every real LLM decision to ``turns_seat{0,2}.jsonl`` and
-   every per-deal reward to ``match_*/log-client{0,2}-*.txt``.
+   every per-deal reward to ``log-client{0,2}-*.txt`` (written by client0/2).
 2. Reconstruct deals: within a deal ``my_hands_len`` only decreases (or stays,
    on a PASS); it jumps back up when the next deal is dealt.  danserver exposes
    no seed/deal counter, so this hand-size reset is our deal boundary.
@@ -74,9 +74,15 @@ def _match_key(path: str) -> int:
 
 
 def _read_rewards(traj_dir: str, seat: int) -> List[int]:
-    """Per-deal rewards for a seat, concatenated across matches in play order."""
-    logs = glob.glob(os.path.join(traj_dir, "match_*", f"log-client{seat}-*.txt"))
-    logs.sort(key=_match_key)
+    """Per-deal rewards for a seat, in play order.
+
+    A single-run rollout writes ``$traj_dir/log-client{seat}-*.txt``; an older
+    per-match layout wrote ``$traj_dir/match_*/log-client{seat}-*.txt``.  Support
+    both, ordered by match index then filename (timestamp).
+    """
+    logs = glob.glob(os.path.join(traj_dir, f"log-client{seat}-*.txt"))
+    logs += glob.glob(os.path.join(traj_dir, "match_*", f"log-client{seat}-*.txt"))
+    logs.sort(key=lambda p: (_match_key(p), p))
     rewards: List[int] = []
     for lg in logs:
         rewards.extend(parse_rewards_from_log(lg))
@@ -148,7 +154,7 @@ if __name__ == "__main__":
     import argparse
 
     ap = argparse.ArgumentParser(description="Parse a rollout traj_dir into samples.")
-    ap.add_argument("traj_dir", help="directory with turns_seat*.jsonl + match_*/")
+    ap.add_argument("traj_dir", help="dir with turns_seat*.jsonl + log-client*-*.txt")
     args = ap.parse_args()
 
     samples, stats = build_samples(args.traj_dir)

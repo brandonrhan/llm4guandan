@@ -23,6 +23,12 @@ TRAIN_GPUS="${TRAIN_GPUS:-0,1}"
 export TF_PY="${TF_PY:-python}"
 export API_PORT
 
+# pku-server: /sbin/ldconfig is a Debian wrapper that exits 255, which makes
+# triton's libcuda_dirs() (called during vLLM profiling AND trainer kernel
+# compilation) raise InductorError. Point triton straight at libcuda.so's dir so
+# it skips the ldconfig probe. Needed by BOTH the vLLM worker and the trainer.
+export TRITON_LIBCUDA_PATH="${TRITON_LIBCUDA_PATH:-/usr/lib/x86_64-linux-gnu}"
+
 mkdir -p logs runs/grpo_v1
 source .venv/bin/activate
 
@@ -36,8 +42,9 @@ VLLM_ALLOW_RUNTIME_LORA_UPDATING=1 CUDA_VISIBLE_DEVICES="$VLLM_GPUS" \
     --tensor-parallel-size 2 \
     --enable-lora --max-lora-rank 8 \
     --lora-modules "guandan=$INIT_LORA" \
-    --max-model-len 4096 \
+    --max-model-len 8192 \
     --gpu-memory-utilization 0.85 \
+    --enforce-eager \
     --port "$API_PORT" \
     > logs/vllm_grpo.log 2>&1 &
 echo "[$(date)] vLLM launching on GPUs $VLLM_GPUS port $API_PORT ..."

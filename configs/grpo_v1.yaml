@@ -7,7 +7,9 @@ model_name_or_path: Qwen/Qwen2.5-14B-Instruct
 adapter_name_or_path: weights/checkpoint-9250   # SFT LoRA, 65.7% vs AI4Card
 attn_implementation: flash_attention_2
 gradient_checkpointing: true
-max_seq_len: 4096
+max_seq_len: 8192           # must be >= vLLM --max-model-len so logged long
+                            # Guandan prompts (+completion) aren't truncated at
+                            # train time (would break the DrGRPO importance ratio)
 
 # ---- optimization ----
 learning_rate: 1.0e-6        # DAPO constant lr
