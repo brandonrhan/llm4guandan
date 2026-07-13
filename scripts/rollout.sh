@@ -29,6 +29,10 @@ TRAJ_DIR="${2:?traj_dir required}"
 OPP="${3:-danzero}"
 TEMP="${4:-0.8}"
 
+mkdir -p "$TRAJ_DIR"   # caller (train_grpo.py) passes a per-step dir that may not exist yet
+TRAJ_DIR="$(cd "$TRAJ_DIR" && pwd)"   # make absolute: we cd into LF_ROOT/GUAN_HOME below,
+                                      # after which a relative traj path would break the log redirects
+
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
 # Repo is canonical with a third_party/ layout; the server is flat. Auto-detect,
@@ -72,7 +76,10 @@ cleanup() {
 }
 trap cleanup EXIT
 
-# 1) danserver: plays TARGET deals then exits.
+# 1) danserver: plays matches until a team upgrades past A. It treats its arg as
+#    a MATCH count and can hang after the last match, so we DON'T wait for it to
+#    exit -- we stop once we've logged TARGET reward-deals (see the loop below).
+#    One match yields >=1 deal, so TARGET matches always produce >=TARGET deals.
 nohup "$GUAN_HOME/torch/danserver" "$TARGET" > "$TRAJ_DIR/danserver.log" 2>&1 &
 DAN_PID=$!
 sleep 2
@@ -123,18 +130,40 @@ nohup python -u -m rl.actor_llm_rl --model llm >> "$TRAJ_DIR/actor_llm.log" 2>&1
 ACTOR=$!
 
 echo "[$(date)] launched: danserver=$DAN_PID c0=$C0 opp1=$OPP1 c2=$C2 opp3=$OPP3 dzact=${DZACT:-none} actor=$ACTOR"
-echo "[$(date)] polling danserver liveness (rollout ends when danserver exits)"
+echo "[$(date)] polling for $TARGET reward-deals (stop on target / danserver exit / stall)"
 
+# Stop as soon as we've collected TARGET reward-deals (our training batch) rather
+# than waiting for danserver to exit -- danserver can hang after its last match.
+# Also stop if danserver dies on its own, or if no new deal is logged for
+# STALL_LIMIT polls (a genuinely stuck game), so we never hang for hours again.
+STALL_LIMIT=40   # 40 * 15s = 10 min with no new deal -> assume stuck
 attempt=1
+last_n=0
+stall=0
 while [ "$attempt" -le "$WAIT_LIMIT" ]; do
   sleep 15
-  if ! kill -0 "$DAN_PID" 2>/dev/null; then
-    echo "[$(date)] danserver exited after $((attempt * 15))s -> rollout complete"
+  n=$(cat "$TRAJ_DIR"/log-client0-*.txt 2>/dev/null | grep -c '"reward"' || true)
+  n=${n:-0}
+  if [ "$n" -ge "$TARGET" ]; then
+    echo "[$(date)] collected $n/$TARGET deals -> rollout complete"
     break
   fi
+  if ! kill -0 "$DAN_PID" 2>/dev/null; then
+    echo "[$(date)] danserver exited after $((attempt * 15))s with $n/$TARGET deals -> rollout complete"
+    break
+  fi
+  if [ "$n" -le "$last_n" ]; then
+    stall=$((stall + 1))
+    if [ "$stall" -ge "$STALL_LIMIT" ]; then
+      echo "[$(date)] no new deal for $((STALL_LIMIT * 15))s (stuck) -> stopping with $n/$TARGET deals"
+      break
+    fi
+  else
+    stall=0
+  fi
+  last_n=$n
   if [ $((attempt % 20)) -eq 0 ]; then
-    n=$(cat "$TRAJ_DIR"/log-client0-*.txt 2>/dev/null | grep -c '"reward"' || true)
-    echo "[$(date)] attempt $attempt/$WAIT_LIMIT; deals_done=${n:-0}/$TARGET"
+    echo "[$(date)] attempt $attempt/$WAIT_LIMIT; deals_done=$n/$TARGET"
   fi
   attempt=$((attempt + 1))
 done

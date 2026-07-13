@@ -5,7 +5,8 @@
 # ---- model / RL start ----
 model_name_or_path: Qwen/Qwen2.5-14B-Instruct
 adapter_name_or_path: weights/checkpoint-9250   # SFT LoRA, 65.7% vs AI4Card
-attn_implementation: flash_attention_2
+attn_implementation: sdpa   # flash_attn not built in the trainer .venv; sdpa is
+                            # native PyTorch attention (no compile, fine for Qwen2.5)
 gradient_checkpointing: true
 max_seq_len: 8192           # must be >= vLLM --max-model-len so logged long
                             # Guandan prompts (+completion) aren't truncated at
@@ -14,9 +15,9 @@ max_seq_len: 8192           # must be >= vLLM --max-model-len so logged long
 # ---- optimization ----
 learning_rate: 1.0e-6        # DAPO constant lr
 max_grad_norm: 1.0
-max_steps: 500               # v1: validate direction before scaling
-save_steps: 50
-micro_batch_size: 4          # per-GPU decisions per forward
+max_steps: 100               # v1: validate direction before scaling (~2 days)
+save_steps: 25
+micro_batch_size: 1          # per-GPU decisions per forward (seq 8192: mbs>1 OOMs on 24GB)
 loss_norm_const: 256         # Dr.GRPO length-free denominator (== max_new_tokens)
 output_dir: runs/grpo_v1
 
@@ -30,7 +31,7 @@ loss:
 rollout:
   opponent: danzero          # v1 opponent (deterministic strong AI)
   our_seats: [0, 2]          # policy plays both teammate seats (2x data)
-  num_deals_per_batch: 32    # deals collected per training step
+  num_deals_per_batch: 16    # deals collected per training step (~20min rollout/step)
   temperature: 0.8           # exploration temperature for our seats
 
 # ---- vLLM sync (runtime LoRA hot-swap) ----

@@ -24,12 +24,20 @@ import argparse
 import json
 import os
 import sys
+from datetime import timedelta
 from typing import Dict, List
+
+# Reclaim fragmented (reserved-but-unallocated) GPU memory. DeepSpeed's worker
+# launcher does NOT forward arbitrary shell env vars, so exporting this in
+# train_grpo.sh never reaches the workers; set it here (before the first CUDA
+# allocation) so the caching allocator actually uses expandable segments.
+os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
 
 import torch
 import torch.nn.functional as F
 import yaml
 from accelerate import Accelerator
+from accelerate.utils import InitProcessGroupKwargs
 from peft import PeftModel
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
@@ -100,9 +108,19 @@ def completion_logps(model, tokenizer, batch: List[Sample], device,
     out = model(input_ids=input_ids, attention_mask=attn)
     logits = out.logits[:, :-1, :]              # predict token t from t-1
     targets = input_ids[:, 1:]
-    logp_all = F.log_softmax(logits.float(), dim=-1)
-    logp = logp_all.gather(-1, targets.unsqueeze(-1)).squeeze(-1)  # [B, T-1]
     mask = cmask[:, 1:]                          # align mask to prediction targets
+
+    # Compute per-token log-probs ONLY at completion positions. A full
+    # [B, T-1, V] float32 log_softmax over the 150k-token vocab at seq 8192 is
+    # ~5 GB and OOMs the 4090; the completion is <=256 tokens, so gathering just
+    # those rows keeps the softmax tensor tiny (and full fp32 precision).
+    sel = mask.bool()                           # [B, T-1]
+    logp = torch.zeros_like(mask)               # [B, T-1], 0 where not completion
+    if sel.any():
+        rows = logits[sel].float()              # [N_comp, V]
+        tgt = targets[sel]                       # [N_comp]
+        row_logp = rows.log_softmax(-1).gather(-1, tgt.unsqueeze(-1)).squeeze(-1)
+        logp[sel] = row_logp.to(logp.dtype)
 
     # right-pad every row to comp_norm_len so grpo_loss divides by a constant
     T = logp.shape[1]
@@ -139,6 +157,25 @@ def sync_lora_to_vllm(cfg: dict, adapter_dir: str):
     except Exception as exc:
         print(f"[sync] vLLM LoRA reload failed ({exc}); "
               f"rollout will use previous policy this step", flush=True)
+
+
+def save_adapter(accelerator, model, adapter_dir: str):
+    """Save the trainable LoRA adapter, gathering ZeRO-3-sharded weights first.
+
+    Under ZeRO-3 the trainable LoRA parameters are partitioned across ranks, so
+    a plain single-rank ``save_pretrained`` writes 1-D shards that vLLM cannot
+    load (``too many indices for tensor of dimension 1``). Gather the full
+    tensors via a collective ``GatheredParameters`` context (all ranks enter),
+    then materialize and save the correct 2-D weights on rank 0 only.
+    """
+    import deepspeed
+
+    unwrapped = accelerator.unwrap_model(model)
+    lora_params = [p for p in unwrapped.parameters() if p.requires_grad]
+    with deepspeed.zero.GatheredParameters(lora_params, modifier_rank=0):
+        if accelerator.is_main_process:
+            unwrapped.save_pretrained(adapter_dir, selected_adapters=["default"])
+    accelerator.wait_for_everyone()
 
 
 # --------------------------------------------------------------------------- #
@@ -193,7 +230,12 @@ def main():
     if os.environ.get("API_PORT"):
         cfg["api_port"] = int(os.environ["API_PORT"])
 
-    accelerator = Accelerator()
+    # Only rank 0 runs the (long) rollout while the other ranks block on the
+    # post-rollout barrier. A full batch of games can take far longer than
+    # NCCL's default 10-min watchdog, which would abort the idle ranks mid-
+    # rollout. Give the process group a generous timeout to cover it.
+    ipg = InitProcessGroupKwargs(timeout=timedelta(hours=6))
+    accelerator = Accelerator(kwargs_handlers=[ipg])
     tokenizer = AutoTokenizer.from_pretrained(cfg["model_name_or_path"])
     if tokenizer.pad_token_id is None:
         tokenizer.pad_token = tokenizer.eos_token
@@ -203,9 +245,28 @@ def main():
         [p for p in model.parameters() if p.requires_grad],
         lr=float(cfg["learning_rate"]),
     )
-    model, optim = accelerator.prepare(model, optim)
 
     micro_bs = cfg.get("micro_batch_size", 4)
+    # We generate rollouts ourselves and never hand accelerate a DataLoader, so
+    # DeepSpeed can't infer the "auto" batch sizes. Set them explicitly on the
+    # plugin before prepare() (train_batch_size = micro_bs * dp_world * grad_accum).
+    ds_plugin = getattr(accelerator.state, "deepspeed_plugin", None)
+    if ds_plugin is not None:
+        ga = int(ds_plugin.deepspeed_config.get("gradient_accumulation_steps", 1) or 1)
+        ds_plugin.deepspeed_config["train_micro_batch_size_per_gpu"] = int(micro_bs)
+        ds_plugin.deepspeed_config["train_batch_size"] = int(micro_bs) * accelerator.num_processes * ga
+        # Cap ZeRO-3 transient all-gather buffers. The 14B base params stay
+        # GPU-resident (fast), but the default live/prefetch buffers (~1e9
+        # params) spike peak memory and OOM the 4090 during forward. Smaller
+        # buckets trade a little PCIe comm for a much lower memory ceiling.
+        zo = ds_plugin.deepspeed_config.setdefault("zero_optimization", {})
+        zo["stage3_max_live_parameters"] = int(cfg.get("stage3_max_live_parameters", 5e7))
+        zo["stage3_max_reuse_distance"] = int(cfg.get("stage3_max_reuse_distance", 5e7))
+        zo["stage3_prefetch_bucket_size"] = int(cfg.get("stage3_prefetch_bucket_size", 1e7))
+        zo["stage3_param_persistence_threshold"] = int(cfg.get("stage3_param_persistence_threshold", 1e5))
+
+    model, optim = accelerator.prepare(model, optim)
+
     max_len = cfg.get("max_seq_len", 4096)
     comp_norm = cfg.get("loss_norm_const", 256)
     loss_cfg = cfg["loss"]
@@ -214,8 +275,10 @@ def main():
     for step in range(1, cfg["max_steps"] + 1):
         model.eval()
         samples = gather_samples(accelerator, cfg, step)
-        # dynamic sampling: drop zero-advantage decisions (no gradient signal)
-        samples = [s for s in samples if abs(s.advantage) > 1e-9]
+        # dynamic sampling: drop zero-advantage decisions (no gradient signal).
+        # Disable via drop_zero_advantage=false to force a step for smoke tests.
+        if cfg.get("drop_zero_advantage", True):
+            samples = [s for s in samples if abs(s.advantage) > 1e-9]
         if not samples:
             accelerator.print(f"[step {step}] no non-zero-advantage samples, skip")
             continue
@@ -261,21 +324,12 @@ def main():
         # checkpoint + push the new LoRA to vLLM
         if step % cfg.get("save_steps", 50) == 0 or step == cfg["max_steps"]:
             adapter_dir = os.path.join(cfg["output_dir"], f"checkpoint-{step}")
-            accelerator.wait_for_everyone()
-            if accelerator.is_main_process:
-                accelerator.unwrap_model(model).save_pretrained(
-                    adapter_dir, selected_adapters=["default"]
-                )
-                sync_lora_to_vllm(cfg, adapter_dir)
         else:
-            # lightweight per-step sync so the next rollout is on-policy
+            # lightweight per-step checkpoint so the next rollout is on-policy
             adapter_dir = os.path.join(cfg["output_dir"], "checkpoint-latest")
-            accelerator.wait_for_everyone()
-            if accelerator.is_main_process:
-                accelerator.unwrap_model(model).save_pretrained(
-                    adapter_dir, selected_adapters=["default"]
-                )
-                sync_lora_to_vllm(cfg, adapter_dir)
+        save_adapter(accelerator, model, adapter_dir)
+        if accelerator.is_main_process:
+            sync_lora_to_vllm(cfg, adapter_dir)
 
     accelerator.print("training done")
 
