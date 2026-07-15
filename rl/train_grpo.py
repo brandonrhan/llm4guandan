@@ -279,9 +279,23 @@ def main():
         # Disable via drop_zero_advantage=false to force a step for smoke tests.
         if cfg.get("drop_zero_advantage", True):
             samples = [s for s in samples if abs(s.advantage) > 1e-9]
-        if not samples:
-            accelerator.print(f"[step {step}] no non-zero-advantage samples, skip")
+
+        # ZeRO-3 requires EVERY rank to issue the same number of forward/backward
+        # passes, or their parameter all-gathers desync and NCCL times out. After
+        # per-rank sharding + filtering the counts differ, so agree on the global
+        # minimum micro-batch count and truncate every rank to it (all ranks skip
+        # together when any rank has none).
+        local_n_micro = (len(samples) + micro_bs - 1) // micro_bs
+        if accelerator.num_processes > 1:
+            t = torch.tensor([local_n_micro], device=device, dtype=torch.long)
+            torch.distributed.all_reduce(t, op=torch.distributed.ReduceOp.MIN)
+            global_n_micro = int(t.item())
+        else:
+            global_n_micro = local_n_micro
+        if global_n_micro == 0:
+            accelerator.print(f"[step {step}] a rank has no non-zero-advantage samples, skip")
             continue
+        samples = samples[: global_n_micro * micro_bs]
 
         model.train()
         step_metrics: Dict[str, float] = {}
